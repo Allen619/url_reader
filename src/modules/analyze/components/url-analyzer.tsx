@@ -14,8 +14,7 @@ const UrlAnalyzer: FC = () => {
     try {
       const data = await analyze(urls);
       console.log('分析任务创建成功:', data);
-      toast.success('任务创建成功');
-      // TODO: 添加任务状态展示
+      toast.success('任务创建成功，您可以前往Notion数据库查看进度');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '创建任务失败');
     }

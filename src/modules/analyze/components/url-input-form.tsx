@@ -74,14 +74,15 @@ const UrlInputForm: FC<UrlInputFormProps> = ({
 
   const handleSubmit = () => {
     // 验证所有URL
-    const newErrors = validateUrls(urls)
+    const newErrors = validateUrls(urls);
 
     if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors)
-      return
+      setErrors(newErrors);
+      return;
     }
 
-    onSubmit(urls.filter(url => url.length > 0))
+    onSubmit(urls.filter(url => url.length > 0));
+    resetForm();
   }
 
   // 验证单个URL
@@ -125,6 +126,14 @@ const UrlInputForm: FC<UrlInputFormProps> = ({
     setTimeout(() => {
       setTextareaValue('')
     }, 300)
+  }
+
+  // 重置表单
+  const resetForm = () => {
+    setUrls([''])
+    setErrors({})
+    setTextareaValue('')
+    setOpen(false)
   }
 
   // 智能拆分函数
