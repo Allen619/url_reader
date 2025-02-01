@@ -1,11 +1,11 @@
 'use client'
 
 import { FC, ChangeEvent } from 'react'
-import { Input } from '../../components/ui/input'
-import { Button } from '../../components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import FormError from '../../components/ui/form-error'
+import FormError from '@/components/ui/form-error'
 
 interface UrlInputItemProps {
   value: string
@@ -14,7 +14,6 @@ interface UrlInputItemProps {
   error?: string
   className?: string
 }
-
 
 const UrlInputItem: FC<UrlInputItemProps> = ({
   value,

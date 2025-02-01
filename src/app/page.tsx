@@ -1,6 +1,5 @@
 import Header from '@/components/layout/header'
-import Footer from '@/components/layout/footer'
-import UrlAnalyzer from '@/components/url-analyzer'
+import UrlAnalyzer from '@/modules/analyze/components/url-analyzer'
 
 export default function Home() {
   return (
@@ -11,7 +10,6 @@ export default function Home() {
         <UrlAnalyzer />
       </main>
 
-      <Footer />
     </div>
   )
 }

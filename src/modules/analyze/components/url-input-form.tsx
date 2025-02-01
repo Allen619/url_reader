@@ -18,11 +18,15 @@ import { AnimatePresence, motion } from 'framer-motion'
 
 interface UrlInputFormProps {
   onSubmit: (urls: string[]) => void
+  isLoading?: boolean
 }
 
-const URL_REGEX = /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([/\w .-]*)*\/?$/
+const URL_REGEX = /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([/\w .-]*)*\/?(\?[^#]*)?(#.*)?$/i;
 
-const UrlInputForm: FC<UrlInputFormProps> = ({ onSubmit }) => {
+const UrlInputForm: FC<UrlInputFormProps> = ({ 
+  onSubmit,
+  isLoading = false 
+}) => {
   const [urls, setUrls] = useState<string[]>([''])
   const [errors, setErrors] = useState<Record<number, string>>({})
   const [open, setOpen] = useState(false)
@@ -59,10 +63,9 @@ const UrlInputForm: FC<UrlInputFormProps> = ({ onSubmit }) => {
 
     // 验证
     const newErrors = { ...errors }
-    if (!value) {
-      newErrors[index] = 'URL不能为空'
-    } else if (!URL_REGEX.test(value)) {
-      newErrors[index] = 'URL格式不正确'
+    const error = validateUrl(value)
+    if (error) {
+      newErrors[index] = error
     } else {
       delete newErrors[index]
     }
@@ -71,14 +74,7 @@ const UrlInputForm: FC<UrlInputFormProps> = ({ onSubmit }) => {
 
   const handleSubmit = () => {
     // 验证所有URL
-    const newErrors: Record<number, string> = {}
-    urls.forEach((url, index) => {
-      if (!url) {
-        newErrors[index] = 'URL不能为空'
-      } else if (!URL_REGEX.test(url)) {
-        newErrors[index] = 'URL格式不正确'
-      }
-    })
+    const newErrors = validateUrls(urls)
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors)
@@ -92,8 +88,19 @@ const UrlInputForm: FC<UrlInputFormProps> = ({ onSubmit }) => {
   const validateUrl = (url: string): string | null => {
     if (!url) {
       return 'URL不能为空'
-    } else if (!URL_REGEX.test(url)) {
-      return 'URL格式不正确'
+    }
+
+    try {
+      // 尝试解码 URL（如果已编码）
+      const decodedUrl = decodeURIComponent(url);
+      if (!URL_REGEX.test(decodedUrl)) {
+        return 'URL格式不正确'
+      }
+    } catch {
+      // 如果解码失败，直接验证原始URL
+      if (!URL_REGEX.test(url)) {
+        return 'URL格式不正确'
+      }
     }
     return null
   }
@@ -263,6 +270,7 @@ const UrlInputForm: FC<UrlInputFormProps> = ({ onSubmit }) => {
               size="sm"
               onClick={addUrl}
               className="flex items-center gap-2"
+              disabled={isLoading}
             >
               <Plus className="h-4 w-4" />
               添加URL
@@ -271,8 +279,9 @@ const UrlInputForm: FC<UrlInputFormProps> = ({ onSubmit }) => {
             <Button 
               onClick={handleSubmit}
               className="min-w-[120px]"
+              disabled={isLoading}
             >
-              开始分析
+              {isLoading ? '处理中...' : '开始分析'}
             </Button>
           </div>
         </div>
