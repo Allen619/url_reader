@@ -1,9 +1,9 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { TaskResult } from './queue';
+import { UrlTask } from '@/types/queue';
 
 // 处理单个URL
-export async function processUrl(result: TaskResult) {
+export async function processUrl(urlTask: UrlTask) {
   try {
     // 模拟处理延迟
     await new Promise((resolve) =>
@@ -16,11 +16,11 @@ export async function processUrl(result: TaskResult) {
 
     // 生成模拟数据
     const mockData = {
-      url: result.url,
-      title: `${result.url} 的标题`,
-      description: `这是 ${result.url} 的描述`,
+      url: urlTask.url,
+      title: `${urlTask.url} 的标题`,
+      description: `这是 ${urlTask.url} 的描述`,
       keywords: ['关键词1', '关键词2', '关键词3'],
-      content: `这是 ${result.url} 的主要内容。\n这是第二行内容。\n这是第三行内容。`,
+      content: `这是 ${urlTask.url} 的主要内容。\n这是第二行内容。\n这是第三行内容。`,
       metadata: {
         author: '作者名称',
         publishDate: new Date().toISOString(),
@@ -42,7 +42,7 @@ export async function processUrl(result: TaskResult) {
 
     // 将数据写入文件
     const fileName =
-      Buffer.from(result.url).toString('base64').replace(/[/+=]/g, '_') +
+      Buffer.from(urlTask.url).toString('base64').replace(/[/+=]/g, '_') +
       '.json';
     await fs.writeFile(
       path.join(storageDir, fileName),
@@ -51,17 +51,17 @@ export async function processUrl(result: TaskResult) {
     );
 
     // 更新结果
-    result.content = JSON.stringify({
+    urlTask.content = JSON.stringify({
       title: mockData.title,
       description: mockData.description,
       wordCount: mockData.metadata.wordCount,
       fileName,
     });
 
-    result.status = 'completed';
+    urlTask.status = 'completed';
   } catch (error) {
-    result.status = 'failed';
-    result.error = error instanceof Error ? error.message : '处理失败';
+    urlTask.status = 'failed';
+    urlTask.error = error instanceof Error ? error.message : '处理失败';
     throw error;
   }
 }

@@ -2,50 +2,26 @@ import { Queue, Worker, QueueEvents, Job } from 'bullmq';
 import IORedis from 'ioredis';
 import { redisConfig, taskConfig } from './config';
 import { processUrl } from './processor';
-
-// 添加调试日志
-console.log('Current directory:', process.cwd());
-console.log('__dirname:', __dirname);
-
-export interface TaskResult {
-  url: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  content?: string;
-  error?: string;
-}
-
-export interface Task {
-  id: string;
-  urls: string[];
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  results: TaskResult[];
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-interface JobData {
-  taskId: string;
-  urls: string[];
-}
-
-interface JobResult {
-  results: TaskResult[];
-}
+import { JobData, TaskContent, UrlTask } from '@/types/queue';
 
 const QUEUE_NAME = 'url-analyzer';
 
+interface SerializedUrlTask extends Omit<UrlTask, 'createdAt' | 'updatedAt'> {
+  createdAt: string;
+  updatedAt: string;
+}
+
 class QueueManager {
   private queue: Queue<JobData>;
-  private worker: Worker<JobData, JobResult>;
+  private worker: Worker<JobData, SerializedUrlTask>;
   private events: QueueEvents;
   private redis: IORedis;
   private static instance: QueueManager;
 
   private constructor() {
-    // 创建 Redis 客户端
     this.redis = new IORedis(redisConfig);
 
-    // 创建队列
+    // 初始化队列
     this.queue = new Queue<JobData>(QUEUE_NAME, {
       connection: redisConfig,
       defaultJobOptions: {
@@ -59,82 +35,181 @@ class QueueManager {
       },
     });
 
-    // 创建工作进程
-    this.worker = new Worker<JobData, JobResult>(
+    // 初始化worker
+    this.worker = new Worker<JobData, SerializedUrlTask>(
       QUEUE_NAME,
       async (job: Job<JobData>) => {
-        const { urls } = job.data;
-        console.log('Processing job:', job.id, 'URLs:', urls);
+        try {
+          const { url, urlId } = job.data;
+          if (!url || !urlId) {
+            throw new Error('无效的任务数据：缺少URL或URL ID');
+          }
 
-        const results = await Promise.all(
-          urls.map(async (url: string) => {
-            const result: TaskResult = {
-              url,
-              status: 'pending',
-            };
-            try {
-              await processUrl(result);
-            } catch (error) {
-              console.error('Error processing URL:', url, error);
-            }
-            return result;
-          })
-        );
+          console.log('开始处理URL任务:', { url, urlId });
 
-        // 更新任务状态
-        const task = await this.getTask(job.id as string);
-        if (task) {
-          task.results = results;
-          task.status = results.every((r) => r.status === 'completed')
-            ? 'completed'
-            : 'failed';
-          task.updatedAt = new Date();
+          // 获取或创建任务
+          let urlTask = await this.getOrCreateTask(urlId, url);
 
-          await this.redis.set(
-            `task:${job.id}`,
-            JSON.stringify(task),
-            'EX',
-            taskConfig.expireTime
-          );
+          // 更新状态为处理中
+          urlTask = await this.updateTaskStatus(urlTask, 'processing');
+
+          // 处理URL
+          await processUrl(urlTask);
+
+          // 更新状态为完成
+          urlTask = await this.updateTaskStatus(urlTask, 'completed');
+
+          // 返回序列化的任务数据
+          return this.serializeTask(urlTask);
+        } catch (error) {
+          const urlTask = await this.handleProcessingError(job.data, error);
+          return this.serializeTask(urlTask);
         }
-
-        return { results };
       },
       {
         connection: redisConfig,
-        concurrency: 1,
+        concurrency: taskConfig.concurrency,
         removeOnComplete: { count: 1000 },
         removeOnFail: { count: 5000 },
       }
     );
 
-    // 创建事件监听器
+    // 初始化事件监听
     this.events = new QueueEvents(QUEUE_NAME, {
       connection: redisConfig,
     });
 
-    // 错误处理
+    this.setupEventListeners();
+  }
+
+  private serializeTask(task: UrlTask): SerializedUrlTask {
+    return {
+      ...task,
+      createdAt: task.createdAt.toISOString(),
+      updatedAt: task.updatedAt.toISOString(),
+    };
+  }
+
+  private deserializeTask(serialized: SerializedUrlTask): UrlTask {
+    return {
+      ...serialized,
+      createdAt: new Date(serialized.createdAt),
+      updatedAt: new Date(serialized.updatedAt),
+    };
+  }
+
+  private setupEventListeners() {
+    // Worker错误处理
     this.worker.on('error', (err: Error) => {
-      console.error('Worker error:', err);
+      console.error('Worker错误:', err);
     });
 
     this.worker.on('failed', (job: Job | undefined, err: Error) => {
-      console.error('Job failed:', job?.id, err);
+      console.error('任务执行失败:', job?.id, err);
     });
 
-    this.events.on(
-      'completed',
-      ({ jobId, returnvalue }: { jobId: string; returnvalue: string }) => {
-        console.log('Job completed:', jobId, returnvalue);
+    // 任务完成事件
+    this.events.on('completed', ({ jobId, returnvalue }) => {
+      try {
+        // returnvalue 已经是序列化的任务数据
+        const serializedTask = returnvalue as unknown as SerializedUrlTask;
+        const task = this.deserializeTask(serializedTask);
+
+        // 解析content字段（如果存在）
+        let content: TaskContent | undefined;
+        if (task.content) {
+          try {
+            content = JSON.parse(task.content);
+          } catch (e) {
+            console.warn('解析content失败:', e);
+          }
+        }
+
+        console.log('任务完成:', {
+          jobId,
+          url: task.url,
+          status: task.status,
+          title: content?.title,
+          wordCount: content?.wordCount,
+          updatedAt: task.updatedAt.toISOString(),
+        });
+      } catch (error) {
+        console.error('处理完成事件失败:', error);
+        if (typeof returnvalue === 'object') {
+          console.error('原始返回值:', JSON.stringify(returnvalue, null, 2));
+        } else {
+          console.error('原始返回值:', returnvalue);
+        }
       }
+    });
+
+    // 任务失败事件
+    this.events.on('failed', ({ jobId, failedReason }) => {
+      console.error('任务失败:', jobId, failedReason);
+    });
+  }
+
+  private async getOrCreateTask(urlId: string, url: string): Promise<UrlTask> {
+    const existingTask = await this.redis.get(`url:${urlId}`);
+    if (existingTask) {
+      const serialized = JSON.parse(existingTask) as SerializedUrlTask;
+      return this.deserializeTask(serialized);
+    }
+
+    return {
+      id: urlId,
+      url,
+      status: 'pending',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+  }
+
+  private async updateTaskStatus(
+    task: UrlTask,
+    status: UrlTask['status']
+  ): Promise<UrlTask> {
+    const updatedTask = {
+      ...task,
+      status,
+      updatedAt: new Date(),
+    };
+
+    const serialized = this.serializeTask(updatedTask);
+    await this.redis.set(
+      `url:${task.id}`,
+      JSON.stringify(serialized),
+      'EX',
+      taskConfig.expireTime
     );
 
-    this.events.on(
-      'failed',
-      ({ jobId, failedReason }: { jobId: string; failedReason: string }) => {
-        console.error('Job failed:', jobId, failedReason);
-      }
+    return updatedTask;
+  }
+
+  private async handleProcessingError(
+    jobData: JobData,
+    error: unknown
+  ): Promise<UrlTask> {
+    console.error('URL处理失败:', jobData, error);
+
+    const urlTask: UrlTask = {
+      id: jobData.urlId,
+      url: jobData.url,
+      status: 'failed',
+      error: error instanceof Error ? error.message : '处理失败',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const serialized = this.serializeTask(urlTask);
+    await this.redis.set(
+      `url:${jobData.urlId}`,
+      JSON.stringify(serialized),
+      'EX',
+      taskConfig.expireTime
     );
+
+    return urlTask;
   }
 
   public static getInstance(): QueueManager {
@@ -144,52 +219,48 @@ class QueueManager {
     return QueueManager.instance;
   }
 
-  // 添加新任务
-  public async addTask(taskId: string, urls: string[]): Promise<Task> {
-    const task: Task = {
-      id: taskId,
-      urls,
-      status: 'pending',
-      results: urls.map((url) => ({
-        url,
-        status: 'pending',
-      })),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+  public async addUrl(urlId: string, url: string): Promise<UrlTask> {
+    if (!url || !urlId) {
+      throw new Error('URL和URL ID都是必需的');
+    }
 
-    // 保存任务信息到 Redis
-    await this.redis.set(
-      `task:${taskId}`,
-      JSON.stringify(task),
-      'EX',
-      taskConfig.expireTime
-    );
+    // 创建初始任务
+    const urlTask = await this.getOrCreateTask(urlId, url);
+    await this.updateTaskStatus(urlTask, 'pending');
 
-    // 添加到队列
-    await this.queue.add(
-      'analyze',
-      {
-        taskId,
-        urls,
-      },
-      {
-        jobId: taskId,
-      }
-    );
+    try {
+      // 添加到队列
+      const job = await this.queue.add(
+        'analyze',
+        { urlId, url },
+        {
+          jobId: urlId,
+          removeOnComplete: true,
+          removeOnFail: false,
+        }
+      );
 
-    return task;
+      console.log('URL已添加到队列:', url, 'Job ID:', job.id);
+      return urlTask;
+    } catch (error) {
+      console.error('添加任务到队列失败:', error);
+      throw error;
+    }
   }
 
-  // 获取任务状态
-  public async getTask(taskId: string): Promise<Task | null> {
-    const taskData = await this.redis.get(`task:${taskId}`);
-    if (!taskData) return null;
+  public async getUrlTask(urlId: string): Promise<UrlTask | null> {
+    try {
+      const taskData = await this.redis.get(`url:${urlId}`);
+      if (!taskData) return null;
 
-    return JSON.parse(taskData);
+      const serialized = JSON.parse(taskData) as SerializedUrlTask;
+      return this.deserializeTask(serialized);
+    } catch (error) {
+      console.error('获取URL任务失败:', error);
+      return null;
+    }
   }
 
-  // 关闭连接
   public async close() {
     await this.queue.close();
     await this.worker.close();

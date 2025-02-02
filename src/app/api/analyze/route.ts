@@ -31,9 +31,9 @@ const requestSchema = z.object({
     .max(10, '每次最多处理10个URL'),
 });
 
-// 生成唯一任务 ID
-function generateTaskId() {
-  return `task_${nanoid(10)}`;
+// 生成唯一URL ID
+function generateUrlId() {
+  return `url_${nanoid(10)}`;
 }
 
 /**
@@ -42,22 +42,24 @@ function generateTaskId() {
  */
 export async function POST(request: NextRequest) {
   try {
-    // 解析请求体
     const body = await request.json();
-
-    // 验证请求数据
     const { urls } = requestSchema.parse(body);
 
-    // 创建任务
-    const taskId = generateTaskId();
-    const task = await queueManager.addTask(taskId, urls);
+    // 为每个URL创建独立任务
+    const tasks = await Promise.all(
+      urls.map(async (url) => {
+        const urlId = generateUrlId();
+        return await queueManager.addUrl(urlId, url);
+      })
+    );
 
-    // 返回任务信息
     return NextResponse.json({
-      taskId: task.id,
       message: '任务创建成功',
-      status: task.status,
-      results: task.results,
+      tasks: tasks.map((task) => ({
+        urlId: task.id,
+        url: task.url,
+        status: task.status,
+      })),
     });
   } catch (error: unknown) {
     console.error('创建分析任务失败:', error);
@@ -85,22 +87,22 @@ export async function POST(request: NextRequest) {
 
 /**
  * GET /api/analyze
- * 获取任务状态
+ * 获取URL任务状态
  */
 export async function GET(request: NextRequest) {
   try {
-    const taskId = request.nextUrl.searchParams.get('taskId');
+    const urlId = request.nextUrl.searchParams.get('urlId');
 
-    if (!taskId) {
+    if (!urlId) {
       return NextResponse.json(
         {
-          message: '缺少任务ID',
+          message: '缺少URL ID',
         },
         { status: 400 }
       );
     }
 
-    const task = await queueManager.getTask(taskId);
+    const task = await queueManager.getUrlTask(urlId);
 
     if (!task) {
       return NextResponse.json(
@@ -112,9 +114,11 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      taskId: task.id,
+      urlId: task.id,
+      url: task.url,
       status: task.status,
-      results: task.results,
+      content: task.content,
+      error: task.error,
       createdAt: task.createdAt,
       updatedAt: task.updatedAt,
     });
