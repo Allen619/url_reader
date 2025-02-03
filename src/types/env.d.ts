@@ -7,5 +7,7 @@ declare namespace NodeJS {
     TASK_MAX_ATTEMPTS: string;
     TASK_RETRY_DELAY: string;
     TASK_EXPIRE_TIME: string;
+    NOTION_TOKEN: string;
+    NOTION_DATABASE_ID: string;
   }
 }

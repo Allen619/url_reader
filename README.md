@@ -113,10 +113,13 @@ urlQueue.process(async (job) => {
     await notion.pages.create({
       parent: { database_id: NOTION_DB_ID },
       properties: {
-        URL: { url },
-        Status: { select: { name: 'Failed' } },
-        Error: { rich_text: [{ text: { content: error.message } }] },
-        CreatedAt: { date: { start: new Date().toISOString() } },
+        title: {
+          title: [{ text: { content: '失败记录' } }],
+        },
+        url: { url },
+        status: { select: { name: 'Failed' } },
+        error_msg: { rich_text: [{ text: { content: error.message } }] },
+        createdAt: { date: { start: new Date().toISOString() } },
       },
     });
     throw error; // 让Bull处理重试

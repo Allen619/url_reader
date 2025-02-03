@@ -1,133 +1,96 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
 import { queueManager } from '@/lib/queue';
-import { nanoid } from 'nanoid';
+import { z } from 'zod';
 
-// URL 验证正则表达式
-const URL_REGEX =
-  /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([/\w .-]*)*\/?(\?[^#]*)?(#.*)?$/i;
-
-// 请求体验证 Schema
+// 验证请求体的schema
 const requestSchema = z.object({
-  urls: z
-    .array(
-      z
-        .string()
-        .min(1, '请输入URL')
-        .transform((url) => {
-          try {
-            // 尝试解码 URL（如果已编码）
-            return decodeURIComponent(url);
-          } catch {
-            // 如果解码失败，说明可能未编码，直接返回原始值
-            return url;
-          }
-        })
-        .refine((url) => URL_REGEX.test(url), {
-          message: '无效的URL格式',
-        })
-    )
-    .min(1, '至少需要一个URL')
-    .max(10, '每次最多处理10个URL'),
+  urls: z.array(z.string().url()).min(1),
 });
 
-// 生成唯一URL ID
-function generateUrlId() {
-  return `url_${nanoid(10)}`;
-}
-
-/**
- * POST /api/analyze
- * 创建 URL 分析任务
- */
 export async function POST(request: NextRequest) {
   try {
+    // 解析请求体
     const body = await request.json();
     const { urls } = requestSchema.parse(body);
 
-    // 为每个URL创建独立任务
-    const tasks = await Promise.all(
-      urls.map(async (url) => {
-        const urlId = generateUrlId();
-        return await queueManager.addUrl(urlId, url);
-      })
-    );
+    // 添加URL到队列
+    const jobs = await queueManager.addJobs(urls);
 
     return NextResponse.json({
-      message: '任务创建成功',
-      tasks: tasks.map((task) => ({
-        urlId: task.id,
-        url: task.url,
-        status: task.status,
-      })),
+      success: true,
+      message: `成功添加 ${jobs.length} 个URL到处理队列`,
+      jobIds: jobs.map((job) => job.id),
     });
-  } catch (error: unknown) {
-    console.error('创建分析任务失败:', error);
+  } catch (error) {
+    console.error('处理URL分析请求失败:', error);
 
-    // 处理验证错误
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         {
-          message: '请求参数错误',
+          success: false,
+          message: '无效的请求数据',
           errors: error.errors,
         },
         { status: 400 }
       );
     }
 
-    // 处理其他错误
     return NextResponse.json(
       {
-        message: '服务器内部错误',
+        success: false,
+        message: '处理请求失败',
+        error: error instanceof Error ? error.message : '未知错误',
       },
       { status: 500 }
     );
   }
 }
 
-/**
- * GET /api/analyze
- * 获取URL任务状态
- */
 export async function GET(request: NextRequest) {
   try {
-    const urlId = request.nextUrl.searchParams.get('urlId');
+    const { searchParams } = new URL(request.url);
+    const jobId = searchParams.get('jobId');
 
-    if (!urlId) {
+    if (!jobId) {
       return NextResponse.json(
         {
-          message: '缺少URL ID',
+          success: false,
+          message: '缺少jobId参数',
         },
         { status: 400 }
       );
     }
 
-    const task = await queueManager.getUrlTask(urlId);
-
-    if (!task) {
+    const job = await queueManager.getJob(jobId);
+    if (!job) {
       return NextResponse.json(
         {
-          message: '任务不存在',
+          success: false,
+          message: '找不到指定的任务',
         },
         { status: 404 }
       );
     }
 
     return NextResponse.json({
-      urlId: task.id,
-      url: task.url,
-      status: task.status,
-      content: task.content,
-      error: task.error,
-      createdAt: task.createdAt,
-      updatedAt: task.updatedAt,
+      success: true,
+      job: {
+        id: job.id,
+        data: job.data,
+        status: await job.getState(),
+        progress: job.progress,
+        returnvalue: job.returnvalue,
+        failedReason: job.failedReason,
+        timestamp: job.timestamp,
+      },
     });
-  } catch (error: unknown) {
+  } catch (error) {
     console.error('获取任务状态失败:', error);
-
     return NextResponse.json(
       {
-        message: '服务器内部错误',
+        success: false,
+        message: '获取任务状态失败',
+        error: error instanceof Error ? error.message : '未知错误',
       },
       { status: 500 }
     );

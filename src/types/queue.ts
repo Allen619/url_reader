@@ -4,6 +4,7 @@ export interface UrlTask {
   id: string;
   url: string;
   status: TaskStatus;
+  tags: string;
   content?: string;
   error?: string;
   createdAt: Date;
@@ -18,8 +19,8 @@ export interface TaskContent {
 }
 
 export interface JobData {
-  urlId: string;
   url: string;
+  notionPageId?: string;
 }
 
 export interface QueueConfig {
