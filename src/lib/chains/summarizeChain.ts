@@ -36,7 +36,7 @@ export class SummarizeChain {
   async summarize(content: string): Promise<SummaryResult> {
     try {
       const prompt =
-        PromptTemplate.fromTemplate(`分析以下文章内容，并提取关键信息。主题语言请使用${this.language}回复。
+        PromptTemplate.fromTemplate(`分析以下文章内容，并提取关键信息。
 
 文章内容：
 {content}
@@ -45,6 +45,7 @@ export class SummarizeChain {
 1. 一个简洁但信息丰富的标题
 2. 不超过1000字的详细摘要，包含主要论点和关键细节
 3. 3-5个关键词标签
+4. 主体语言请使用${this.language}回复。
 
 {format_instructions}`);
 

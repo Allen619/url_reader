@@ -1,4 +1,8 @@
 import { Client } from '@notionhq/client';
+import {
+  CreatePageResponse,
+  UpdatePageResponse,
+} from '@notionhq/client/build/src/api-endpoints';
 
 if (!process.env.NOTION_TOKEN) {
   throw new Error('NOTION_TOKEN is required');
@@ -6,10 +10,6 @@ if (!process.env.NOTION_TOKEN) {
 
 if (!process.env.NOTION_DATABASE_ID) {
   throw new Error('NOTION_DATABASE_ID is required');
-}
-
-if (!process.env.NOTION_PROXY_URL) {
-  throw new Error('NOTION_PROXY_URL is required');
 }
 
 export const notion = new Client({
@@ -37,46 +37,13 @@ export interface NotionPageProperties {
   updatedAt?: Date;
 }
 
-export interface NotionPageResponse {
-  id: string;
-  properties: Record<string, unknown>;
-  created_time: string;
-  last_edited_time: string;
-  url: string;
-}
+export type NotionPageResponse = CreatePageResponse | UpdatePageResponse;
 
 export interface QueryDatabaseResponse {
   results: Array<{
     id: string;
     properties: Record<string, unknown>;
   }>;
-}
-
-// 添加代理调用方法
-async function proxyCall<T>(
-  method: string,
-  params: Record<string, unknown>
-): Promise<T> {
-  const response = await fetch(process.env.NOTION_PROXY_URL as string, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      instance: {
-        auth: process.env.NOTION_TOKEN,
-      },
-      method,
-      params,
-    }),
-  });
-
-  const result = await response.json();
-  if (!result.success) {
-    throw new Error(result.error || 'Proxy call failed');
-  }
-
-  return result.data;
 }
 
 // 转换properties为Notion API格式
@@ -133,9 +100,9 @@ function convertPropertiesToNotion(properties: Partial<NotionPageProperties>) {
 
 export async function createPage(
   properties: NotionPageProperties
-): Promise<NotionPageResponse> {
+): Promise<CreatePageResponse> {
   try {
-    return await proxyCall('pages.create', {
+    return await notion.pages.create({
       parent: {
         database_id: databaseId,
       },
@@ -150,9 +117,9 @@ export async function createPage(
 export async function updatePage(
   pageId: string,
   properties: Partial<NotionPageProperties>
-): Promise<NotionPageResponse> {
+): Promise<UpdatePageResponse> {
   try {
-    return await proxyCall('pages.update', {
+    return await notion.pages.update({
       page_id: formatNotionId(pageId),
       properties: convertPropertiesToNotion(properties),
     });
@@ -164,7 +131,7 @@ export async function updatePage(
 
 export async function queryPageByUrl(url: string) {
   try {
-    const response = await proxyCall<QueryDatabaseResponse>('databases.query', {
+    const response = await notion.databases.query({
       database_id: databaseId,
       filter: {
         property: 'url',
