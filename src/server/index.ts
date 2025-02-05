@@ -69,6 +69,7 @@ const server = http.createServer(async (req, res) => {
           });
 
           const methodPath = method.split('.');
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           let currentObj: any = notionClient;
 
           for (const path of methodPath) {
