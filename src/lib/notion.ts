@@ -45,6 +45,13 @@ export interface NotionPageResponse {
   url: string;
 }
 
+export interface QueryDatabaseResponse {
+  results: Array<{
+    id: string;
+    properties: Record<string, unknown>;
+  }>;
+}
+
 // 添加代理调用方法
 async function proxyCall<T>(
   method: string,
@@ -151,6 +158,26 @@ export async function updatePage(
     });
   } catch (error) {
     console.error(error);
+    throw error;
+  }
+}
+
+export async function queryPageByUrl(url: string) {
+  try {
+    const response = await proxyCall<QueryDatabaseResponse>('databases.query', {
+      database_id: databaseId,
+      filter: {
+        property: 'url',
+        rich_text: {
+          equals: url,
+        },
+      },
+      page_size: 1,
+    });
+
+    return response.results[0] || null;
+  } catch (error) {
+    console.error('Error querying page by URL:', error);
     throw error;
   }
 }
